@@ -31,17 +31,22 @@ export async function initDB() {
     );
 
     CREATE TABLE IF NOT EXISTS contacts (
-      id         SERIAL PRIMARY KEY,
-      name       TEXT NOT NULL,
-      email      TEXT NOT NULL,
-      subject    TEXT NOT NULL,
-      message    TEXT NOT NULL,
-      created_at TIMESTAMPTZ DEFAULT NOW()
+      id                      SERIAL PRIMARY KEY,
+      name                    TEXT NOT NULL,
+      email                   TEXT NOT NULL,
+      subject                 TEXT NOT NULL,
+      message                 TEXT NOT NULL,
+      estimated_participants  TEXT,
+      program_month           TEXT,
+      program_year            TEXT,
+      created_at              TIMESTAMPTZ DEFAULT NOW()
     );
 
-    -- Add new columns if they don't exist yet
     ALTER TABLE registrations ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'pending';
     ALTER TABLE registrations ADD COLUMN IF NOT EXISTS stripe_session_id TEXT;
+    ALTER TABLE contacts ADD COLUMN IF NOT EXISTS estimated_participants TEXT;
+    ALTER TABLE contacts ADD COLUMN IF NOT EXISTS program_month TEXT;
+    ALTER TABLE contacts ADD COLUMN IF NOT EXISTS program_year TEXT;
   `)
   console.log('✅ Database tables ready')
 }

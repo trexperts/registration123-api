@@ -1,5 +1,6 @@
 // src/index.js
 
+import committeeRouter from './routes/committeeRoutes.js'
 import express from 'express'
 import cors from 'cors'
 import dotenv from 'dotenv'
@@ -31,7 +32,7 @@ app.get('/', (_req, res) => {
 
 app.use('/api/registrations', registrationsRouter)
 app.use('/api/contact', contactRouter)
-
+app.use('/api/committee', committeeRouter)
 app.use((_req, res) => {
   res.status(404).json({ message: 'Route not found' })
 })
