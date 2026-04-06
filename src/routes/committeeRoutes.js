@@ -373,8 +373,23 @@ router.get('/matches', requireAdmin, async (req, res) => {
 // GET /api/committee/export?committee_id=1
 // Header: x-committee-code: ADMIN2026
 
-router.get('/export', requireAdmin, async (req, res) => {
-  const { committee_id } = req.query;
+// ─── 8. Export matches as CSV ─────────────────────────────────────────────────
+router.get('/export', async (req, res) => {
+  const { committee_id, admin_code } = req.query;
+
+  // Verify admin code via query param
+  try {
+    const codeCheck = await pool.query(
+      `SELECT role FROM committee_access_codes
+       WHERE UPPER(code) = UPPER($1) AND is_active = TRUE`,
+      [admin_code?.trim()]
+    );
+    if (!codeCheck.rows.length || codeCheck.rows[0].role !== 'admin') {
+      return res.status(403).json({ error: 'Invalid admin code.' });
+    }
+  } catch {
+    return res.status(500).json({ error: 'Server error.' });
+  }
 
   let query = `
     SELECT
@@ -429,7 +444,6 @@ router.get('/export', requireAdmin, async (req, res) => {
     res.status(500).json({ error: 'Export failed.' });
   }
 });
-
 
 // ─── Middleware: require admin code ──────────────────────────────────────────
 
