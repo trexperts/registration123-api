@@ -16,8 +16,8 @@ const PORT = process.env.PORT || 3001
 // ── CORS ──────────────────────────────────────────────────────────────────
 app.use(cors({
   origin: [
-    process.env.FRONTEND_URL || 'http://localhost:5173',
     'http://localhost:5173',
+    'https://adorable-biscochitos-7d785d.netlify.app',
   ],
   methods: ['GET', 'POST'],
 }))
