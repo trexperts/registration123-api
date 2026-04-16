@@ -17,10 +17,6 @@ function parseTier(score) {
 }
 
 // ─── 1. Verify access code ────────────────────────────────────────────────────
-// POST /api/committee/verify-code
-// Body: { code: "MEMBER2026" }
-// Returns: { valid: true, role: "individual" }
-
 router.post('/verify-code', async (req, res) => {
   const { code } = req.body;
   if (!code) return res.status(400).json({ error: 'Code is required.' });
@@ -43,16 +39,9 @@ router.post('/verify-code', async (req, res) => {
 
 
 // ─── 2. Submit individual profile ─────────────────────────────────────────────
-// POST /api/committee/individual
-// Body: { code, first_name, last_name, email, member_type, years_as_member,
-//         strengths_finder, myers_briggs, disc, enneagram,
-//         tasks_liked[], tasks_disliked[], monthly_hours, service_length,
-//         prior_committees[] }
-
 router.post('/individual', async (req, res) => {
   const { code } = req.body;
 
-  // Verify code is individual role
   try {
     const codeCheck = await pool.query(
       `SELECT role FROM committee_access_codes
@@ -124,9 +113,6 @@ router.post('/individual', async (req, res) => {
 
 
 // ─── 3. Get all individuals (admin) ──────────────────────────────────────────
-// GET /api/committee/individuals
-// Header: x-committee-code: ADMIN2026
-
 router.get('/individuals', requireAdmin, async (req, res) => {
   try {
     const result = await pool.query(
@@ -146,12 +132,9 @@ router.get('/individuals', requireAdmin, async (req, res) => {
 
 
 // ─── 4. Create / update a committee (admin) ───────────────────────────────────
-// POST /api/committee/committees
-// Header: x-committee-code: ADMIN2026
-
 router.post('/committees', requireAdmin, async (req, res) => {
   const {
-    id,                         // if provided, update existing
+    id,
     name, description, seats_available,
     required_traits = [], required_tasks = [],
     required_member_type, min_years_as_member,
@@ -218,9 +201,6 @@ router.post('/committees', requireAdmin, async (req, res) => {
 
 
 // ─── 5. Get all committees ────────────────────────────────────────────────────
-// GET /api/committee/committees
-// Header: x-committee-code: ADMIN2026
-
 router.get('/committees', requireAdmin, async (req, res) => {
   try {
     const result = await pool.query(
@@ -234,15 +214,10 @@ router.get('/committees', requireAdmin, async (req, res) => {
 
 
 // ─── 6. Run matching (Claude API) ─────────────────────────────────────────────
-// POST /api/committee/run-match
-// Header: x-committee-code: ADMIN2026
-// Body: { committee_ids: [1,2,3] }  — optional; omit to match all
-
 router.post('/run-match', requireAdmin, async (req, res) => {
   const { committee_ids } = req.body;
 
   try {
-    // Fetch individuals and committees
     const individualsRes = await pool.query(`SELECT * FROM committee_individuals`);
     const committeesRes = committee_ids?.length
       ? await pool.query(`SELECT * FROM committees WHERE id = ANY($1) AND is_active=TRUE`, [committee_ids])
@@ -256,7 +231,6 @@ router.post('/run-match', requireAdmin, async (req, res) => {
 
     const results = [];
 
-    // Score each individual against each committee via Claude
     for (const committee of committees) {
       for (const individual of individuals) {
 
@@ -271,7 +245,6 @@ router.post('/run-match', requireAdmin, async (req, res) => {
         let matchData;
         try {
           const text = response.content[0].text;
-          // Strip markdown fences if present
           const clean = text.replace(/```json|```/g, '').trim();
           matchData = JSON.parse(clean);
         } catch (parseErr) {
@@ -282,7 +255,6 @@ router.post('/run-match', requireAdmin, async (req, res) => {
         const overall = parseFloat(matchData.overall_score) || 0;
         const tier = parseTier(overall);
 
-        // Upsert into committee_matches
         await pool.query(
           `INSERT INTO committee_matches
              (individual_id, committee_id, overall_score, trait_score,
@@ -323,9 +295,6 @@ router.post('/run-match', requireAdmin, async (req, res) => {
 
 
 // ─── 7. Get match results ─────────────────────────────────────────────────────
-// GET /api/committee/matches?committee_id=1&tier=Ideal Match&min_score=75
-// Header: x-committee-code: ADMIN2026
-
 router.get('/matches', requireAdmin, async (req, res) => {
   const { committee_id, tier, min_score } = req.query;
 
@@ -370,14 +339,9 @@ router.get('/matches', requireAdmin, async (req, res) => {
 
 
 // ─── 8. Export matches as CSV ─────────────────────────────────────────────────
-// GET /api/committee/export?committee_id=1
-// Header: x-committee-code: ADMIN2026
-
-// ─── 8. Export matches as CSV ─────────────────────────────────────────────────
 router.get('/export', async (req, res) => {
   const { committee_id, admin_code } = req.query;
 
-  // Verify admin code via query param
   try {
     const codeCheck = await pool.query(
       `SELECT role FROM committee_access_codes
@@ -444,6 +408,113 @@ router.get('/export', async (req, res) => {
     res.status(500).json({ error: 'Export failed.' });
   }
 });
+
+
+// ─── 9. Get org settings ──────────────────────────────────────────────────────
+// GET /api/committee/org-settings
+// Header: x-committee-code: ADMIN2026
+
+router.get('/org-settings', requireAdmin, async (req, res) => {
+  try {
+    // Create table if it doesn't exist yet
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS organization_settings (
+        id SERIAL PRIMARY KEY,
+        org_name TEXT,
+        org_website TEXT,
+        org_address TEXT,
+        org_phone TEXT,
+        org_email TEXT,
+        org_logo_url TEXT,
+        membership_types JSONB DEFAULT '[]',
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+
+    const result = await pool.query(
+      `SELECT * FROM organization_settings ORDER BY id LIMIT 1`
+    );
+
+    if (result.rows.length === 0) {
+      return res.json({
+        org_name: '', org_website: '', org_address: '',
+        org_phone: '', org_email: '', org_logo_url: '',
+        membership_types: [],
+      });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('get org-settings error:', err);
+    res.status(500).json({ error: 'Server error.' });
+  }
+});
+
+
+// ─── 10. Save org settings ────────────────────────────────────────────────────
+// POST /api/committee/org-settings
+// Header: x-committee-code: ADMIN2026
+
+router.post('/org-settings', requireAdmin, async (req, res) => {
+  const {
+    org_name, org_website, org_address,
+    org_phone, org_email, org_logo_url,
+    membership_types = [],
+  } = req.body;
+
+  try {
+    // Create table if it doesn't exist yet
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS organization_settings (
+        id SERIAL PRIMARY KEY,
+        org_name TEXT,
+        org_website TEXT,
+        org_address TEXT,
+        org_phone TEXT,
+        org_email TEXT,
+        org_logo_url TEXT,
+        membership_types JSONB DEFAULT '[]',
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+
+    // Check if a row exists
+    const existing = await pool.query(`SELECT id FROM organization_settings LIMIT 1`);
+
+    if (existing.rows.length > 0) {
+      await pool.query(
+        `UPDATE organization_settings SET
+           org_name=$1, org_website=$2, org_address=$3,
+           org_phone=$4, org_email=$5, org_logo_url=$6,
+           membership_types=$7, updated_at=NOW()
+         WHERE id=$8`,
+        [
+          org_name || null, org_website || null, org_address || null,
+          org_phone || null, org_email || null, org_logo_url || null,
+          JSON.stringify(membership_types),
+          existing.rows[0].id
+        ]
+      );
+    } else {
+      await pool.query(
+        `INSERT INTO organization_settings
+           (org_name, org_website, org_address, org_phone, org_email, org_logo_url, membership_types)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [
+          org_name || null, org_website || null, org_address || null,
+          org_phone || null, org_email || null, org_logo_url || null,
+          JSON.stringify(membership_types)
+        ]
+      );
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('save org-settings error:', err);
+    res.status(500).json({ error: 'Failed to save settings.' });
+  }
+});
+
 
 // ─── Middleware: require admin code ──────────────────────────────────────────
 
